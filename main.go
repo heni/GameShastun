@@ -14,6 +14,7 @@ type Move [2]int
 type StrategyOptions struct {
 	do_optimal_selection bool
 	do_optimal_skip      bool
+	do_manual_selection  bool
 }
 type PrecalcSkip struct {
 	speedup       float64
@@ -65,6 +66,24 @@ func state_to_string(s BoardState) string {
 	return builder.String()
 }
 
+func update_selection_with_manual_strategy(s1 BoardState, ok1 *bool, s2 BoardState, ok2 *bool, m Move) {
+	/* skip move if only {1} or {2} left in lower part of board */
+	if *ok1 && ((int(s1)&63 == 1) || (int(s1)&63 == 2)) {
+		*ok1 = false
+	}
+	if *ok2 && ((int(s2)&63 == 1) || (int(s2)&63 == 2)) {
+		*ok2 = false
+	}
+	/* prefer sums if it's more then 8; prefer individuals else */
+	if *ok1 && *ok2 {
+		if m[0]+m[1] >= 8 {
+			*ok1 = false
+		} else {
+			*ok2 = false
+		}
+	}
+}
+
 func calc_game_table(strategy StrategyOptions, skips_table *[]PrecalcSkip) []float64 {
 	const N = 1 << 12
 
@@ -88,6 +107,9 @@ func calc_game_table(strategy StrategyOptions, skips_table *[]PrecalcSkip) []flo
 			for b := 1; b <= 6; b++ {
 				s1, ok1 := update_state_1(BoardState(pos), Move{a, b})
 				s2, ok2 := update_state_2(BoardState(pos), Move{a, b})
+				if strategy.do_manual_selection {
+					update_selection_with_manual_strategy(s1, &ok1, s2, &ok2, Move{a, b})
+				}
 				if ok1 && ok2 {
 					var tm float64
 					if strategy.do_optimal_selection {
@@ -209,9 +231,37 @@ func save_skips_table(skips []PrecalcSkip, game []float64, filename string) {
 }
 
 func main() {
-	strategy := StrategyOptions{true, true}
-	skips := make([]PrecalcSkip, 1<<12)
-	game := calc_game_table(strategy, &skips)
-	save_game_table(game, "game_optimal[do_skips].txt")
-	save_skips_table(skips, game, "do_skips.txt")
+	/* Calculate random selection tables */
+	{
+		var strategy StrategyOptions
+		game := calc_game_table(strategy, nil)
+		save_game_table(game, "game_random.txt")
+	}
+
+	/* Calculate optimal selection tables (no move skips)  */
+	{
+		var strategy StrategyOptions
+		strategy.do_optimal_selection = true
+		game := calc_game_table(strategy, nil)
+		save_game_table(game, "game_optimal.txt")
+	}
+
+	/* Calculate optimal selection with skips tables */
+	{
+		var strategy StrategyOptions
+		strategy.do_optimal_selection = true
+		strategy.do_optimal_skip = true
+		skips := make([]PrecalcSkip, 1<<12)
+		game := calc_game_table(strategy, &skips)
+		save_game_table(game, "game_optimal[do_skips].txt")
+		save_skips_table(skips, game, "do_skips.txt")
+	}
+
+	/* Calculate manual strategy selection tables */
+	{
+		var strategy StrategyOptions
+		strategy.do_manual_selection = true
+		game := calc_game_table(strategy, nil)
+		save_game_table(game, "game_manual.txt")
+	}
 }
